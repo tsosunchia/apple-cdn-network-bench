@@ -4,6 +4,12 @@
 
 ---
 
+## Demo
+
+![speedtest demo](./demo.svg)
+
+---
+
 ## Go 版本（推荐）
 
 使用 Go 重写，零外部依赖（无需 curl / awk / dd / pv 等），单一二进制即可运行。
