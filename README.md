@@ -35,7 +35,7 @@ bash scripts/build.sh
 ### 一键安装（仅 Linux）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tsosunchia/apple-cdn-network-bench/main/scripts/install.sh | bash
+curl -sL nxtrace.org/speedtest_install | bash
 ```
 
 - 自动识别 Linux 架构（`amd64`/`arm64`）
