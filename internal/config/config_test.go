@@ -163,3 +163,46 @@ func TestSummary(t *testing.T) {
 		t.Error("Summary() is empty")
 	}
 }
+
+func TestLoadUpperLimits(t *testing.T) {
+	tests := []struct {
+		key, val string
+	}{
+		{"TIMEOUT", "121"},
+		{"THREADS", "65"},
+		{"LATENCY_COUNT", "101"},
+	}
+	for _, tt := range tests {
+		for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT"} {
+			os.Unsetenv(k)
+		}
+		os.Setenv(tt.key, tt.val)
+		_, err := Load()
+		if err == nil {
+			t.Errorf("Load() with %s=%q should fail (upper limit exceeded)", tt.key, tt.val)
+		}
+		os.Unsetenv(tt.key)
+	}
+}
+
+func TestLoadUpperLimitsAtBoundary(t *testing.T) {
+	for _, k := range []string{"DL_URL", "UL_URL", "LATENCY_URL", "MAX", "TIMEOUT", "THREADS", "LATENCY_COUNT"} {
+		os.Unsetenv(k)
+	}
+	os.Setenv("TIMEOUT", "120")
+	os.Setenv("THREADS", "64")
+	os.Setenv("LATENCY_COUNT", "100")
+	defer func() {
+		os.Unsetenv("TIMEOUT")
+		os.Unsetenv("THREADS")
+		os.Unsetenv("LATENCY_COUNT")
+	}()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() with boundary values should succeed: %v", err)
+	}
+	if cfg.Timeout != 120 || cfg.Threads != 64 || cfg.LatencyCount != 100 {
+		t.Errorf("unexpected values: %+v", cfg)
+	}
+}

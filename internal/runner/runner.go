@@ -13,7 +13,10 @@ import (
 	"github.com/tsosunchia/apple-cdn-network-bench/internal/transfer"
 )
 
-func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) {
+// Run executes the full speedtest pipeline. Exit codes: 0 success, 2 degraded, 130 interrupted.
+func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) int {
+	degraded := false
+
 	bus.Line()
 	bus.Banner("\u26a1 Apple CDN Speedtest")
 	bus.Info("Config:  " + cfg.Summary())
@@ -21,6 +24,11 @@ func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) {
 
 	bus.Header("Environment Check")
 	bus.Info("Go binary \u2014 no external dependencies required.")
+
+	if ctx.Err() != nil {
+		bus.Warn("Interrupted.")
+		return 130
+	}
 
 	cdnHost := endpoint.HostFromURL(cfg.DLURL)
 	ep := endpoint.Choose(ctx, cdnHost, bus, isTTY)
@@ -34,7 +42,19 @@ func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) {
 	}
 	client := netx.NewClient(clientOpts)
 
-	gatherInfo(ctx, bus, cdnHost, ep)
+	if ctx.Err() != nil {
+		bus.Warn("Interrupted.")
+		return 130
+	}
+
+	if !gatherInfo(ctx, bus, cdnHost, ep) {
+		degraded = true
+	}
+
+	if ctx.Err() != nil {
+		bus.Warn("Interrupted.")
+		return 130
+	}
 
 	bus.Header("Idle Latency")
 	bus.Info("Endpoint: " + cfg.LatencyURL)
@@ -47,6 +67,9 @@ func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) {
 	var totalData int64
 
 	runRound := func(dir transfer.Direction, threads int, label string, url string) {
+		if ctx.Err() != nil {
+			return
+		}
 		bus.Header(label)
 		bus.Info(fmt.Sprintf("Threads: %d", threads))
 		bus.Info(fmt.Sprintf("Limit: %s / %ds per thread", cfg.Max, cfg.Timeout))
@@ -72,6 +95,11 @@ func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) {
 	runRound(transfer.Upload, 1, "Upload (single thread)", cfg.ULURL)
 	runRound(transfer.Upload, cfg.Threads, "Upload (multi-thread)", cfg.ULURL)
 
+	if ctx.Err() != nil {
+		bus.Warn("Interrupted.")
+		return 130
+	}
+
 	bus.Line()
 	bus.Banner("\U0001f4ca Summary")
 	bus.Line()
@@ -80,15 +108,22 @@ func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) {
 	bus.Line()
 	bus.Info("All tests complete.")
 	bus.Line()
+
+	if degraded {
+		return 2
+	}
+	return 0
 }
 
-func gatherInfo(ctx context.Context, bus *render.Bus, host string, ep endpoint.Endpoint) {
+func gatherInfo(ctx context.Context, bus *render.Bus, host string, ep endpoint.Endpoint) bool {
+	ok := true
 	bus.Header("Connection Information")
 
 	cinfo := endpoint.FetchInfo(ctx, "")
 	clientIP := cinfo.Query
 	if clientIP == "" {
 		clientIP = "?"
+		ok = false
 	}
 	clientISP := cinfo.ISP
 	if clientISP == "" {
@@ -126,6 +161,8 @@ func gatherInfo(ctx context.Context, bus *render.Bus, host string, ep endpoint.E
 		bus.KV("  ASN", sAS)
 		bus.KV("  Location", sLoc)
 	}
+
+	return ok
 }
 
 func formatLocation(info endpoint.IPInfo) string {

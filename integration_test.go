@@ -175,7 +175,10 @@ func TestDoHEmptyResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, _ := http.Get(srv.URL)
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 
 	var result struct {
@@ -195,15 +198,18 @@ func TestDoHErrorJSON(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, _ := http.Get(srv.URL)
-	defer resp.Body.Close()
+	resp2, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp2.Body.Close()
 
 	var result struct {
 		Answer []struct {
 			Data string `json:"data"`
 		} `json:"Answer"`
 	}
-	err := json.NewDecoder(resp.Body).Decode(&result)
+	err = json.NewDecoder(resp2.Body).Decode(&result)
 	if err == nil {
 		t.Error("expected JSON parse error")
 	}
@@ -222,7 +228,10 @@ func TestIPApiMockSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, _ := http.Get(srv.URL)
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	var info struct {
 		Status  string `json:"status"`
@@ -339,5 +348,76 @@ func TestSmokeAllPhases(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "Idle:") {
 		t.Error("missing idle latency in output")
+	}
+}
+
+// Test that context cancellation stops transfer promptly
+func TestContextCancellation(t *testing.T) {
+	// Slow server that drips data forever
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			default:
+			}
+			w.Write(make([]byte, 1024))
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		MaxBytes: 1024 * 1024 * 1024, // 1 GiB — way more than we'll transfer
+		Timeout:  30,
+		Max:      "1G",
+	}
+
+	var buf bytes.Buffer
+	bus := render.NewBus(render.NewPlainRenderer(&buf))
+	defer bus.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel after 500ms
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	transfer.Run(ctx, srv.Client(), cfg, transfer.Download, 1, srv.URL, bus)
+	elapsed := time.Since(start)
+
+	if elapsed > 3*time.Second {
+		t.Errorf("transfer should have stopped after cancellation, took %v", elapsed)
+	}
+}
+
+// Test download from server returning 4xx
+func TestDownloadBadStatusCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("Forbidden"))
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		MaxBytes: 1024 * 1024,
+		Timeout:  2,
+		Max:      "1M",
+	}
+
+	var buf bytes.Buffer
+	bus := render.NewBus(render.NewPlainRenderer(&buf))
+	defer bus.Close()
+
+	res := transfer.Run(context.Background(), srv.Client(), cfg,
+		transfer.Download, 1, srv.URL, bus)
+
+	if res.TotalBytes != 0 {
+		t.Errorf("expected 0 bytes from 403 server, got %d", res.TotalBytes)
 	}
 }

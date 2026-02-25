@@ -122,6 +122,9 @@ func doDownload(ctx context.Context, client *http.Client, url string, maxBytes i
 		return 0
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return 0
+	}
 
 	buf := make([]byte, 256*1024)
 	var total int64

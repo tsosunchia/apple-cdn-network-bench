@@ -12,7 +12,18 @@ import (
 	"github.com/tsosunchia/apple-cdn-network-bench/internal/runner"
 )
 
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
+
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "-v" || os.Args[1] == "--version") {
+		fmt.Printf("speedtest %s (commit %s, built %s)\n", version, commit, date)
+		os.Exit(0)
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  [\u2717] %s\n", err)
@@ -28,10 +39,11 @@ func main() {
 	}
 
 	bus := render.NewBus(r)
-	defer bus.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	runner.Run(ctx, cfg, bus, isTTY)
+	exitCode := runner.Run(ctx, cfg, bus, isTTY)
+	bus.Close()
+	os.Exit(exitCode)
 }

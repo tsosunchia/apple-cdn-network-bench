@@ -57,6 +57,15 @@ func Load() (*Config, error) {
 	if c.LatencyCount <= 0 {
 		return nil, fmt.Errorf("LATENCY_COUNT must be > 0")
 	}
+	if c.Timeout > 120 {
+		return nil, fmt.Errorf("TIMEOUT must be <= 120")
+	}
+	if c.Threads > 64 {
+		return nil, fmt.Errorf("THREADS must be <= 64")
+	}
+	if c.LatencyCount > 100 {
+		return nil, fmt.Errorf("LATENCY_COUNT must be <= 100")
+	}
 	for _, u := range []struct{ name, val string }{
 		{"DL_URL", c.DLURL},
 		{"UL_URL", c.ULURL},

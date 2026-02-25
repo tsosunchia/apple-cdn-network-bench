@@ -10,7 +10,7 @@
 
 ### 环境要求
 
-- Go 1.21+（仅构建时需要）
+- Go 1.22+（仅构建时需要）
 
 ### 构建 & 运行
 
@@ -21,7 +21,21 @@ go run ./cmd/speedtest/
 # 构建二进制
 go build -o speedtest ./cmd/speedtest/
 ./speedtest
+
+# 查看版本
+./speedtest --version
+
+# 多平台交叉编译（输出到 dist/）
+bash scripts/build.sh
 ```
+
+### 本地质量检查
+
+```bash
+bash scripts/check.sh
+```
+
+包含：`gofmt -l` 格式检查、`go vet`、`go test`、`go test -race`。
 
 ### 环境变量
 
@@ -65,7 +79,22 @@ internal/
 ```bash
 go test ./... -count=1        # 全部测试
 go test -race ./... -count=1  # 含竞态检测
+bash scripts/check.sh         # 本地完整检查（格式 + vet + test + race）
 ```
+
+### 退出码
+
+| 码 | 含义 |
+|----|------|
+| 0 | 全部成功 |
+| 1 | 配置错误（参数非法） |
+| 2 | 完成但部分查询降级（如 ip-api 不可达） |
+| 130 | 被信号中断（Ctrl+C） |
+
+### CI / CD
+
+- **CI**（[.github/workflows/ci.yml](.github/workflows/ci.yml)）：push / PR 触发，Go 稳定版 + 上一稳定版矩阵，macOS + Linux，缓存 go mod，运行 `check.sh`。
+- **Release**（[.github/workflows/release.yml](.github/workflows/release.yml)）：`v*` tag 触发，先跑测试，再用 `build.sh` 产出 4 平台二进制 + sha256 校验文件，上传到 GitHub Release。
 
 ### 节点选择逻辑
 

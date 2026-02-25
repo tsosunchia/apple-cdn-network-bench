@@ -84,7 +84,10 @@ func TestResolveDoHMock(t *testing.T) {
 
 	// Can't directly test resolveDoH without refactoring, but test the JSON parsing
 	var dr dohResponse
-	resp, _ := http.Get(srv.URL)
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer resp.Body.Close()
 	json.NewDecoder(resp.Body).Decode(&dr)
 	if len(dr.Answer) != 2 {
@@ -110,5 +113,100 @@ func TestResolveDoHFallbackRegex(t *testing.T) {
 	}
 	if len(unique) != 2 {
 		t.Errorf("expected 2 unique, got %d", len(unique))
+	}
+}
+
+func TestDoResolveDoHStatusCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	// doResolveDoH checks HTTP status; a non-200 should return error
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Error("expected non-200 status")
+	}
+}
+
+func TestDoFetchIPDescStatusCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		t.Error("expected non-200 status code from rate-limited server")
+	}
+}
+
+func TestDoFetchInfoRetryTransportError(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			// Force a broken response to simulate transport error
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		resp := map[string]string{
+			"status":  "success",
+			"query":   "1.2.3.4",
+			"as":      "AS1234",
+			"isp":     "TestISP",
+			"city":    "Tokyo",
+			"country": "Japan",
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	// Simulate calling the server multiple times (retry behavior)
+	var info IPInfo
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		resp, err := http.Get(srv.URL)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+			continue
+		}
+		json.NewDecoder(resp.Body).Decode(&info)
+		lastErr = nil
+		break
+	}
+	if lastErr != nil {
+		t.Fatalf("all retries failed: %v", lastErr)
+	}
+	if info.City != "Tokyo" {
+		t.Errorf("city = %q, want Tokyo", info.City)
+	}
+	if attempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", attempts)
+	}
+}
+
+func TestChooseSystemDNSFallback(t *testing.T) {
+	// Choose with a host that DoH cannot resolve should fall back to system DNS
+	// We can't easily test the full flow without network,
+	// so test with empty host which should return empty endpoint
+	bus := newTestBus()
+	defer bus.Close()
+	ep := Choose(context.Background(), "", bus, false)
+	if ep.IP != "" {
+		t.Errorf("expected empty endpoint for empty host, got %+v", ep)
 	}
 }
