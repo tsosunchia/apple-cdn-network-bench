@@ -1,8 +1,84 @@
 # Apple CDN Network Bench
 
-> Apple CDN (`mensura.cdn-apple.com`) 的下载/上传/延迟测速脚本集合。
+> Apple CDN (`mensura.cdn-apple.com`) 的下载/上传/延迟测速工具。
 
-## 包含脚本
+---
+
+## Go 版本（推荐）
+
+使用 Go 重写，零外部依赖（无需 curl / awk / dd / pv 等），单一二进制即可运行。
+
+### 环境要求
+
+- Go 1.21+（仅构建时需要）
+
+### 构建 & 运行
+
+```bash
+# 直接运行
+go run ./cmd/speedtest/
+
+# 构建二进制
+go build -o speedtest ./cmd/speedtest/
+./speedtest
+```
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DL_URL` | `https://mensura.cdn-apple.com/api/v1/gm/config` 下的 large URL | 下载测试地址 |
+| `UL_URL` | `https://mensura.cdn-apple.com/api/v1/gm/config` 下的 slurp URL | 上传测试地址 |
+| `LATENCY_URL` | `https://mensura.cdn-apple.com/api/v1/gm/config` 下的 small URL | 延迟测试地址 |
+| `MAX` | `2G` | 每线程最大传输量（支持 K/M/G/T 以及 KiB/MiB/GiB/TiB） |
+| `TIMEOUT` | `10` | 每线程传输超时（秒） |
+| `THREADS` | `4` | 多线程并发数 |
+| `LATENCY_COUNT` | `20` | 空载延迟采样次数 |
+
+示例：
+
+```bash
+TIMEOUT=5 MAX=1G THREADS=8 LATENCY_COUNT=10 go run ./cmd/speedtest/
+```
+
+### 输出模式
+
+- **TTY**（终端直连）：彩色输出 + 实时进度刷新（`\r` 覆盖刷新）
+- **非 TTY**（管道 / CI）：纯文本输出，无 ANSI 转义，无进度行
+
+### 项目结构
+
+```
+cmd/speedtest/main.go       入口，信号处理
+internal/
+  config/    配置加载 & 校验 & 单位解析
+  netx/      HTTP/2 客户端工厂 + 端点固定（--resolve 等效）
+  endpoint/  DoH 解析 + ip-api 地理信息 + 节点选择
+  latency/   空载/负载延迟采样 & 统计
+  transfer/  下载/上传传输（单/多线程、双限制）
+  runner/    测试流程编排
+  render/    事件总线 + TTY/Plain 渲染器
+```
+
+### 运行测试
+
+```bash
+go test ./... -count=1        # 全部测试
+go test -race ./... -count=1  # 含竞态检测
+```
+
+### 节点选择逻辑
+
+1. 通过 AliDNS DoH 查询 `mensura.cdn-apple.com` 的 A 记录。
+2. 用 ip-api 查询每个 IP 的地域 / ASN 信息。
+3. 交互终端下可手动选择节点；非交互环境默认选择第 1 个。
+4. 选中后通过 HTTP 客户端 DialContext 固定连接目标（等效于 `curl --resolve`）。
+
+---
+
+## Shell 脚本版本（原始）
+
+### 包含脚本
 
 - `apple-cdn-speedtest.sh`：完整测速（空载延迟、单/多线程下载、单/多线程上传）
 - `apple-cdn-download-test.sh`：仅下载测速
@@ -84,7 +160,7 @@ chmod +x speedtest
 ./speedtest
 ```
 
-## 常用环境变量
+## 常用环境变量（Shell 版）
 
 主脚本（`apple-cdn-speedtest.sh`）：
 
@@ -102,7 +178,7 @@ chmod +x speedtest
 TIMEOUT=5 MAX=1G THREADS=8 LATENCY_COUNT=10 sh apple-cdn-speedtest.sh
 ```
 
-## 节点选择逻辑（主脚本）
+## 节点选择逻辑（Shell 版）
 
 1. 通过 AliDNS DoH 查询 `mensura.cdn-apple.com` 的 A 记录。
 2. 用 ip-api 查询每个 IP 的地域/ASN 信息。
