@@ -20,6 +20,7 @@ PLATFORMS=(
   "darwin/arm64"
   "linux/amd64"
   "linux/arm64"
+  "windows/amd64"
 )
 
 # ── Build ──────────────────────────────────────────────────────────────
@@ -32,6 +33,9 @@ for platform in "${PLATFORMS[@]}"; do
   GOOS="${platform%/*}"
   GOARCH="${platform#*/}"
   output="${DIST}/${BINARY}-${GOOS}-${GOARCH}"
+  if [[ "${GOOS}" == "windows" ]]; then
+    output="${output}.exe"
+  fi
 
   echo "  → ${GOOS}/${GOARCH}"
   CGO_ENABLED=0 GOOS="${GOOS}" GOARCH="${GOARCH}" \

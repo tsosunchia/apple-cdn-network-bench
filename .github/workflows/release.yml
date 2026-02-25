@@ -31,9 +31,17 @@ jobs:
           go-version: stable
           cache: true
 
-      - name: Build all platforms
+      - name: Build release binaries
         run: |
           VERSION="${GITHUB_REF_NAME}" bash scripts/build.sh
+
+      - name: Verify release artifacts
+        run: |
+          test -f dist/speedtest-darwin-amd64
+          test -f dist/speedtest-darwin-arm64
+          test -f dist/speedtest-linux-amd64
+          test -f dist/speedtest-linux-arm64
+          test -f dist/speedtest-windows-amd64.exe
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

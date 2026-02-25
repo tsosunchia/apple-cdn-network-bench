@@ -29,6 +29,17 @@ go build -o speedtest ./cmd/speedtest/
 bash scripts/build.sh
 ```
 
+### 一键安装（Linux/macOS）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tsosunchia/apple-cdn-network-bench/main/scripts/install.sh | bash
+```
+
+- 自动识别系统与架构（`linux`/`darwin` + `amd64`/`arm64`）
+- 从 GitHub Releases 下载最新版本并校验 `sha256`
+- 默认安装到用户目录（优先复用 PATH 中可写目录，否则使用 `~/.local/bin`，无需 sudo）
+- 可通过 `INSTALL_DIR` 指定安装目录，例如：`INSTALL_DIR="$HOME/bin" bash scripts/install.sh`
+
 ### 本地质量检查
 
 ```bash
@@ -94,7 +105,7 @@ bash scripts/check.sh         # 本地完整检查（格式 + vet + test + race�
 ### CI / CD
 
 - **CI**（[.github/workflows/ci.yml](.github/workflows/ci.yml)）：push / PR 触发，Go 稳定版 + 上一稳定版矩阵，macOS + Linux，缓存 go mod，运行 `check.sh`。
-- **Release**（[.github/workflows/release.yml](.github/workflows/release.yml)）：`v*` tag 触发，先跑测试，再用 `build.sh` 产出 4 平台二进制 + sha256 校验文件，上传到 GitHub Release。
+- **Release**（[.github/workflows/release.yml](.github/workflows/release.yml)）：`v*` tag 触发，先跑测试，再用 `build.sh` 产出 5 平台二进制（含 `windows/amd64`）+ sha256 校验文件，上传到 GitHub Release。
 
 ### 节点选择逻辑
 
