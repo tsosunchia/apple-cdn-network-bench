@@ -32,16 +32,21 @@ go build -o speedtest ./cmd/speedtest/
 bash scripts/build.sh
 ```
 
-### 一键安装（Linux/macOS）
+### 一键安装（仅 Linux）
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tsosunchia/apple-cdn-network-bench/main/scripts/install.sh | bash
 ```
 
-- 自动识别系统与架构（`linux`/`darwin` + `amd64`/`arm64`）
+- 自动识别 Linux 架构（`amd64`/`arm64`）
 - 从 GitHub Releases 下载最新版本并校验 `sha256`
-- 默认安装到用户目录（优先复用 PATH 中可写目录，否则使用 `~/.local/bin`，无需 sudo）
+- 默认安装目录：`~/.local/bin`（root 为 `/usr/local/bin`）
+- 若目标安装目录不在 `PATH`，则自动回退安装到当前目录（`$PWD`）
 - 可通过 `INSTALL_DIR` 指定安装目录，例如：`INSTALL_DIR="$HOME/bin" bash scripts/install.sh`
+
+macOS / Windows 用户请直接从 Releases 下载对应二进制：
+
+- <https://github.com/tsosunchia/apple-cdn-network-bench/releases/latest>
 
 ### 本地质量检查
 

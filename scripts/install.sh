@@ -4,6 +4,7 @@ set -euo pipefail
 REPO="tsosunchia/apple-cdn-network-bench"
 BINARY="speedtest"
 RELEASE_BASE="https://github.com/${REPO}/releases/latest/download"
+RELEASES_URL="https://github.com/${REPO}/releases/latest"
 
 log() {
   printf '==> %s\n' "$*"
@@ -46,9 +47,14 @@ detect_platform() {
 
   case "$os" in
     Linux) os="linux" ;;
-    Darwin) os="darwin" ;;
+    Darwin)
+      die "macOS is not supported by this installer. Please download from: ${RELEASES_URL}"
+      ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT*)
+      die "Windows is not supported by this installer. Please download from: ${RELEASES_URL}"
+      ;;
     *)
-      die "unsupported OS: ${os}. This installer only supports Linux/macOS."
+      die "unsupported OS: ${os}. This installer only supports Linux. Binaries: ${RELEASES_URL}"
       ;;
   esac
 
@@ -69,21 +75,12 @@ choose_install_dir() {
     return
   fi
 
-  local dir
-  IFS=':' read -r -a path_dirs <<< "${PATH:-}"
-  for dir in "${path_dirs[@]}"; do
-    [[ -n "$dir" ]] || continue
-    case "$dir" in
-      "$HOME"/*)
-        if [[ -d "$dir" && -w "$dir" ]]; then
-          printf '%s\n' "$dir"
-          return
-        fi
-        ;;
-    esac
-  done
+  if [[ "$(id -u)" -eq 0 ]]; then
+    printf '%s\n' "/usr/local/bin"
+    return
+  fi
 
-  printf '%s\n' "$HOME/.local/bin"
+  printf '%s\n' "${HOME}/.local/bin"
 }
 
 path_has_dir() {
@@ -94,50 +91,6 @@ path_has_dir() {
     [[ "$item" == "$target" ]] && return 0
   done
   return 1
-}
-
-profile_file_for_shell() {
-  local shell_name
-  shell_name="$(basename "${SHELL:-}")"
-  case "$shell_name" in
-    zsh) printf '%s\n' "$HOME/.zprofile" ;;
-    bash)
-      if [[ "$(uname -s)" == "Darwin" ]]; then
-        printf '%s\n' "$HOME/.bash_profile"
-      else
-        printf '%s\n' "$HOME/.bashrc"
-      fi
-      ;;
-    *)
-      printf '%s\n' "$HOME/.profile"
-      ;;
-  esac
-}
-
-ensure_path() {
-  local install_dir="$1"
-  if path_has_dir "$install_dir"; then
-    return
-  fi
-
-  local profile profile_dir profile_path line
-  profile="$(profile_file_for_shell)"
-  profile_dir="$(dirname "$profile")"
-  mkdir -p "$profile_dir"
-
-  if [[ "$install_dir" == "$HOME/"* ]]; then
-    profile_path="\$HOME/${install_dir#"$HOME/"}"
-  else
-    profile_path="$install_dir"
-  fi
-  line="export PATH=\"${profile_path}:\$PATH\""
-
-  touch "$profile"
-  if ! grep -Fq "$line" "$profile"; then
-    printf '\n%s\n' "$line" >> "$profile"
-    log "Added ${install_dir} to PATH in ${profile}"
-    warn "run 'source ${profile}' or open a new shell to use '${BINARY}' from PATH."
-  fi
 }
 
 verify_checksum() {
@@ -161,14 +114,15 @@ verify_checksum() {
 }
 
 main() {
-  local platform os arch asset tmp_dir bin_path sum_path install_dir target
+  local platform os arch asset tmp_dir bin_path sum_path install_dir target trap_cmd run_hint
   platform="$(detect_platform)"
   os="${platform%/*}"
   arch="${platform#*/}"
   asset="${BINARY}-${os}-${arch}"
 
   tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "$tmp_dir"' EXIT
+  trap_cmd="$(printf 'rm -rf -- %q' "$tmp_dir")"
+  trap "$trap_cmd" EXIT
   bin_path="${tmp_dir}/${asset}"
   sum_path="${tmp_dir}/checksums-sha256.txt"
 
@@ -182,20 +136,35 @@ main() {
   verify_checksum "$bin_path" "$sum_path" "$asset"
 
   install_dir="$(choose_install_dir)"
+  install_dir="${install_dir%/}"
+  if [[ -z "$install_dir" ]]; then
+    die "install dir resolved to empty"
+  fi
+  if ! path_has_dir "$install_dir"; then
+    warn "install dir not in PATH: ${install_dir}"
+    warn "falling back to current directory: ${PWD}"
+    install_dir="$PWD"
+  fi
+
   mkdir -p "$install_dir"
   [[ -w "$install_dir" ]] || die "install dir is not writable: ${install_dir}"
 
   target="${install_dir}/${BINARY}"
   if has_cmd install; then
-    install -m 0755 "$bin_path" "$target"
+    install "$bin_path" "$target"
   else
     cp "$bin_path" "$target"
-    chmod 0755 "$target"
   fi
-
-  ensure_path "$install_dir"
+  chmod +x "$target"
 
   log "Installed to ${target}"
+  if [[ "$install_dir" == "$PWD" ]]; then
+    run_hint="./${BINARY}"
+  else
+    run_hint="${BINARY}"
+  fi
+  log "Run with: ${run_hint}"
+
   if "$target" --version >/dev/null 2>&1; then
     "$target" --version
   fi
