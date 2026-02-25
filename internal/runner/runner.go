@@ -140,16 +140,21 @@ func gatherInfo(ctx context.Context, bus *render.Bus, host string, ep endpoint.E
 	bus.KV("  Location", clientLoc)
 
 	serverIP := ep.IP
+	if serverIP == "" && host != "" {
+		// DNS fallback: resolve host to enrich server metadata
+		serverIP = endpoint.ResolveHost(host)
+	}
 	if serverIP == "" {
 		serverIP = "?"
+		ok = false
 	}
 	bus.KV("Server", fmt.Sprintf("%s  \u2192  %s", host, serverIP))
 	if ep.Desc != "" {
 		bus.KV("  Endpoint", ep.Desc)
 	}
 
-	if ep.IP != "" {
-		sinfo := endpoint.FetchInfo(ctx, ep.IP)
+	if serverIP != "?" {
+		sinfo := endpoint.FetchInfo(ctx, serverIP)
 		sAS := sinfo.AS
 		if sAS == "" {
 			sAS = sinfo.Org

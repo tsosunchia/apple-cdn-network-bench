@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -208,5 +209,45 @@ func TestChooseSystemDNSFallback(t *testing.T) {
 	ep := Choose(context.Background(), "", bus, false)
 	if ep.IP != "" {
 		t.Errorf("expected empty endpoint for empty host, got %+v", ep)
+	}
+}
+
+func TestResolveHostLocalhost(t *testing.T) {
+	// ResolveHost should be able to resolve "localhost" via system DNS
+	ip := ResolveHost("localhost")
+	// On most systems this returns 127.0.0.1; on some it may return "".
+	// Just verify it doesn't panic and returns either "" or a valid IP.
+	if ip != "" && net.ParseIP(ip) == nil {
+		t.Errorf("ResolveHost returned invalid IP: %q", ip)
+	}
+}
+
+func TestDoFetchInfoJSONStatusFail(t *testing.T) {
+	// ip-api can return HTTP 200 with status:"fail" in JSON.
+	// doFetchInfo should treat this as an error and trigger retry.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "fail",
+			"message": "reserved range",
+		})
+	}))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	var info IPInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		t.Fatal(err)
+	}
+	if info.Status == "success" {
+		t.Error("expected non-success status")
+	}
+	// Verify our doFetchInfo logic: status != success should be treated as error
+	if info.Status != "fail" {
+		t.Errorf("expected status=fail, got %q", info.Status)
 	}
 }

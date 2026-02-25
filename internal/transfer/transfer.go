@@ -207,5 +207,10 @@ func doUpload(ctx context.Context, client *http.Client, url string, maxBytes int
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode >= 400 {
+		sent := cr.count.Load()
+		atomic.AddInt64(shared, -sent) // rollback shared counter
+		return 0
+	}
 	return cr.count.Load()
 }

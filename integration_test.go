@@ -396,6 +396,33 @@ func TestContextCancellation(t *testing.T) {
 	}
 }
 
+// Test upload to server returning 4xx
+func TestUploadBadStatusCode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("Forbidden"))
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		MaxBytes: 256 * 1024,
+		Timeout:  2,
+		Max:      "256K",
+	}
+
+	var buf bytes.Buffer
+	bus := render.NewBus(render.NewPlainRenderer(&buf))
+	defer bus.Close()
+
+	res := transfer.Run(context.Background(), srv.Client(), cfg,
+		transfer.Upload, 1, srv.URL, bus)
+
+	if res.TotalBytes != 0 {
+		t.Errorf("expected 0 bytes from 403 upload, got %d", res.TotalBytes)
+	}
+}
+
 // Test download from server returning 4xx
 func TestDownloadBadStatusCode(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -162,6 +162,11 @@ func doResolveDoH(ctx context.Context, host string) ([]string, error) {
 	return nil, fmt.Errorf("no IPs found in DoH response")
 }
 
+// ResolveHost tries system DNS and returns the first IPv4 address, or "".
+func ResolveHost(host string) string {
+	return resolveSystem(host)
+}
+
 func resolveSystem(host string) string {
 	addrs, err := net.LookupHost(host)
 	if err != nil {
@@ -283,19 +288,22 @@ func doFetchInfo(ctx context.Context, target string) (IPInfo, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return IPInfo{}, err
 	}
+	if info.Status != "" && info.Status != "success" {
+		return IPInfo{}, fmt.Errorf("ip-api status: %s", info.Status)
+	}
 	return info, nil
 }
 
 func promptChoice(count int, bus *render.Bus) int {
 	fmt.Fprintf(os.Stderr, "  \033[36m\033[1m[?]\033[0m Select endpoint [1-%d, Enter=1]: ", count)
 
-	var reader *bufio.Reader
-	if tty, err := os.Open("/dev/tty"); err == nil {
-		defer tty.Close()
-		reader = bufio.NewReader(tty)
-	} else {
-		reader = bufio.NewReader(os.Stdin)
+	tty, err := os.Open("/dev/tty")
+	if err != nil {
+		bus.Warn("/dev/tty unavailable, defaulting to endpoint 1.")
+		return 0
 	}
+	defer tty.Close()
+	reader := bufio.NewReader(tty)
 
 	line, _ := reader.ReadString('\n')
 	line = strings.TrimSpace(line)
