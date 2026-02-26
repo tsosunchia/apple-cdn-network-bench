@@ -615,34 +615,46 @@ func TestPromptChoiceCancelDuringRead(t *testing.T) {
 	}
 }
 
-// TestPromptChoiceNormalInput: normal input through pipe (non-cancelled).
+// TestPromptChoiceNormalInput exercises the full promptChoice → Choose path
+// with simulated user input "2\n" injected via openPromptInputFn.
 func TestPromptChoiceNormalInput(t *testing.T) {
-	// Create a pipe to simulate user typing "2\n"
-	r, w, err := os.Pipe()
+	oldResolveDoH := resolveDoHFn
+	oldFetchIPDesc := fetchIPDescFn
+	oldOpenPrompt := openPromptInputFn
+	t.Cleanup(func() {
+		resolveDoHFn = oldResolveDoH
+		fetchIPDescFn = oldFetchIPDesc
+		openPromptInputFn = oldOpenPrompt
+	})
+	resolveDoHFn = func(_ context.Context, _ string) ([]string, bool, bool) {
+		return []string{"10.0.0.1", "10.0.0.2"}, false, false
+	}
+	fetchIPDescFn = func(_ context.Context, ip string) string {
+		return "desc-" + ip
+	}
+
+	// Create a pipe; write "2\n" to simulate the user selecting endpoint 2.
+	pr, pw, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
+	}
+	go func() {
+		pw.Write([]byte("2\n"))
+		pw.Close()
+	}()
+
+	openPromptInputFn = func() (*os.File, bool, error) {
+		return pr, true, nil
 	}
 
 	bus := newTestBus()
 	defer bus.Close()
 
-	// Write input in a goroutine
-	go func() {
-		w.Write([]byte("2\n"))
-		w.Close()
-	}()
-
-	// Call promptChoice with pipe as a simulated tty (r is the read end).
-	// We can't easily inject this into promptChoice since openPromptInput
-	// tries /dev/tty first. Instead, use parseChoice to verify the logic.
-	// The integration through Choose is tested above.
-	line := "2\n"
-	choice, ok := parseChoice(line, 3)
-	if !ok {
-		t.Fatal("expected valid choice")
+	ep := Choose(context.Background(), "example.com", bus, true)
+	if ep.IP != "10.0.0.2" {
+		t.Errorf("expected IP=10.0.0.2, got %q", ep.IP)
 	}
-	if choice != 1 { // 0-indexed: "2" -> index 1
-		t.Errorf("expected choice=1, got %d", choice)
+	if ep.Desc != "desc-10.0.0.2" {
+		t.Errorf("expected Desc=desc-10.0.0.2, got %q", ep.Desc)
 	}
-	r.Close()
 }

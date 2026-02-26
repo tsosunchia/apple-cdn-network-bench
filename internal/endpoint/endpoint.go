@@ -103,7 +103,7 @@ func Choose(ctx context.Context, host string, bus *render.Bus, isTTY bool) Endpo
 		var cancelled bool
 		choice, cancelled = promptChoice(ctx, len(endpoints), bus)
 		if cancelled {
-			bus.Warn(i18n.Text("Interrupted.", "已中断。"))
+			// Don't log here; runner.go checks ctx.Err() and logs "Interrupted" once.
 			return Endpoint{}
 		}
 	}
