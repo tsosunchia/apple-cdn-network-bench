@@ -58,7 +58,6 @@ func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) i
 	}
 
 	bus.Header(i18n.Text("Idle Latency", "空载延迟"))
-	bus.Info(i18n.Text("Endpoint: ", "端点: ") + cfg.LatencyURL)
 	bus.Info(fmt.Sprintf(i18n.Text("Samples: %d", "采样: %d"), cfg.LatencyCount))
 
 	idleStats := latency.MeasureIdle(ctx, client, cfg.LatencyURL, cfg.LatencyCount)
@@ -88,6 +87,9 @@ func Run(ctx context.Context, cfg *config.Config, bus *render.Bus, isTTY bool) i
 		} else {
 			bus.Result(fmt.Sprintf(i18n.Text("%.0f Mbps  (%s in %.1fs, %d threads)", "%.0f Mbps  (%s，耗时 %.1fs，%d 线程)"),
 				res.Mbps, config.HumanBytes(res.TotalBytes), res.Duration.Seconds(), threads))
+		}
+		if res.HadFault {
+			bus.Warn(i18n.Text("Network issue detected during this round; result may be affected.", "本轮测试中出现网络故障，结果可能受影响。"))
 		}
 		bus.Info(fmt.Sprintf(i18n.Text("Loaded latency: %.2f ms  (jitter %.2f ms)", "负载延迟: %.2f 毫秒  (抖动 %.2f 毫秒)"),
 			loadedStats.Median, loadedStats.Jitter))

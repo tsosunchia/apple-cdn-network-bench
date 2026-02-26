@@ -70,6 +70,9 @@ func TestDownloadIntegration(t *testing.T) {
 	if res.Mbps <= 0 {
 		t.Error("Mbps <= 0")
 	}
+	if res.HadFault {
+		t.Error("unexpected fault on successful download")
+	}
 	if res.Direction != Download {
 		t.Errorf("Direction = %v", res.Direction)
 	}
@@ -99,6 +102,9 @@ func TestUploadIntegration(t *testing.T) {
 	}
 	if received == 0 {
 		t.Error("server received 0 bytes")
+	}
+	if res.HadFault {
+		t.Error("unexpected fault on successful upload")
 	}
 }
 
@@ -169,5 +175,30 @@ func TestDirectionString(t *testing.T) {
 	}
 	if Upload.String() != "Upload" {
 		t.Error("Upload.String()")
+	}
+}
+
+func TestUploadBadStatusMarksFault(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		MaxBytes: 512 * 1024,
+		Timeout:  5,
+		Max:      "512K",
+	}
+	bus := newTestBus()
+	defer bus.Close()
+	client := srv.Client()
+
+	res := Run(context.Background(), client, cfg, Upload, 1, srv.URL, bus)
+	if !res.HadFault {
+		t.Fatal("expected fault on HTTP 403 upload")
+	}
+	if res.FaultCount != 1 {
+		t.Fatalf("FaultCount = %d, want 1", res.FaultCount)
 	}
 }

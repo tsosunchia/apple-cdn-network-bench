@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,6 +35,8 @@ type Result struct {
 	TotalBytes int64
 	Duration   time.Duration
 	Mbps       float64
+	FaultCount int
+	HadFault   bool
 }
 
 func Run(ctx context.Context, client *http.Client, cfg *config.Config,
@@ -43,6 +46,7 @@ func Run(ctx context.Context, client *http.Client, cfg *config.Config,
 	timeout := time.Duration(cfg.Timeout) * time.Second
 
 	var totalBytes int64
+	var faultCount atomic.Int32
 	var wg sync.WaitGroup
 
 	ctx2, cancel := context.WithTimeout(ctx, timeout+2*time.Second)
@@ -76,10 +80,14 @@ func Run(ctx context.Context, client *http.Client, cfg *config.Config,
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			var fault bool
 			if dir == Download {
-				doDownload(ctx2, client, url, maxBytes, timeout, &totalBytes)
+				_, fault = doDownload(ctx2, client, url, maxBytes, timeout, &totalBytes)
 			} else {
-				doUpload(ctx2, client, url, maxBytes, timeout, &totalBytes)
+				_, fault = doUpload(ctx2, client, url, maxBytes, timeout, &totalBytes)
+			}
+			if fault {
+				faultCount.Add(1)
 			}
 		}()
 	}
@@ -95,6 +103,7 @@ func Run(ctx context.Context, client *http.Client, cfg *config.Config,
 		secs = 1
 	}
 	mbps := float64(total) * 8 / (secs * 1_000_000)
+	fc := int(faultCount.Load())
 
 	return Result{
 		Direction:  dir,
@@ -102,16 +111,18 @@ func Run(ctx context.Context, client *http.Client, cfg *config.Config,
 		TotalBytes: total,
 		Duration:   dur,
 		Mbps:       mbps,
+		FaultCount: fc,
+		HadFault:   fc > 0,
 	}
 }
 
-func doDownload(ctx context.Context, client *http.Client, url string, maxBytes int64, timeout time.Duration, shared *int64) int64 {
+func doDownload(ctx context.Context, client *http.Client, url string, maxBytes int64, timeout time.Duration, shared *int64) (int64, bool) {
 	ctx2, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx2, http.MethodGet, url, nil)
 	if err != nil {
-		return 0
+		return 0, true
 	}
 	req.Header.Set("User-Agent", config.UserAgent)
 	req.Header.Set("Accept", "*/*")
@@ -120,15 +131,16 @@ func doDownload(ctx context.Context, client *http.Client, url string, maxBytes i
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0
+		return 0, true
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return 0
+		return 0, true
 	}
 
 	buf := make([]byte, 256*1024)
 	var total int64
+	fault := false
 	for {
 		n, e := resp.Body.Read(buf)
 		if n > 0 {
@@ -139,10 +151,13 @@ func doDownload(ctx context.Context, client *http.Client, url string, maxBytes i
 			break
 		}
 		if e != nil {
+			if !errors.Is(e, io.EOF) {
+				fault = true
+			}
 			break
 		}
 	}
-	return total
+	return total, fault
 }
 
 type zeroReader struct {
@@ -181,7 +196,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func doUpload(ctx context.Context, client *http.Client, url string, maxBytes int64, timeout time.Duration, shared *int64) int64 {
+func doUpload(ctx context.Context, client *http.Client, url string, maxBytes int64, timeout time.Duration, shared *int64) (int64, bool) {
 	ctx2, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -192,7 +207,7 @@ func doUpload(ctx context.Context, client *http.Client, url string, maxBytes int
 
 	req, err := http.NewRequestWithContext(ctx2, http.MethodPut, url, cr)
 	if err != nil {
-		return 0
+		return 0, true
 	}
 	req.ContentLength = -1
 	req.Header.Set("User-Agent", config.UserAgent)
@@ -204,14 +219,14 @@ func doUpload(ctx context.Context, client *http.Client, url string, maxBytes int
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return cr.count.Load()
+		return cr.count.Load(), true
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode >= 400 {
 		sent := cr.count.Load()
 		atomic.AddInt64(shared, -sent) // rollback shared counter
-		return 0
+		return 0, true
 	}
-	return cr.count.Load()
+	return cr.count.Load(), false
 }

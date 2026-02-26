@@ -251,3 +251,30 @@ func TestDoFetchInfoJSONStatusFail(t *testing.T) {
 		t.Errorf("expected status=fail, got %q", info.Status)
 	}
 }
+
+func TestParseChoice(t *testing.T) {
+	tests := []struct {
+		name  string
+		line  string
+		count int
+		want  int
+		ok    bool
+	}{
+		{name: "empty defaults", line: "", count: 4, want: 0, ok: true},
+		{name: "newline defaults", line: "\n", count: 4, want: 0, ok: true},
+		{name: "valid one", line: "1", count: 4, want: 0, ok: true},
+		{name: "valid with spaces", line: " 3 ", count: 4, want: 2, ok: true},
+		{name: "zero invalid", line: "0", count: 4, want: 0, ok: false},
+		{name: "out of range invalid", line: "5", count: 4, want: 0, ok: false},
+		{name: "non number invalid", line: "abc", count: 4, want: 0, ok: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := parseChoice(tt.line, tt.count)
+			if got != tt.want || ok != tt.ok {
+				t.Fatalf("parseChoice(%q, %d) = (%d, %v), want (%d, %v)", tt.line, tt.count, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}

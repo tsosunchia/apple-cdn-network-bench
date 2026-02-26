@@ -300,23 +300,49 @@ func doFetchInfo(ctx context.Context, target string) (IPInfo, error) {
 func promptChoice(count int, bus *render.Bus) int {
 	fmt.Fprintf(os.Stderr, "  \033[36m\033[1m[?]\033[0m %s", fmt.Sprintf(i18n.Text("Select endpoint [1-%d, Enter=1]: ", "选择节点 [1-%d，回车=1]: "), count))
 
-	tty, err := os.Open("/dev/tty")
+	tty, shouldClose, err := openPromptInput()
 	if err != nil {
-		bus.Warn(i18n.Text("/dev/tty unavailable, defaulting to endpoint 1.", "/dev/tty 不可用，默认使用节点 1。"))
+		bus.Warn(i18n.Text("Interactive input unavailable, defaulting to endpoint 1.", "交互输入不可用，默认使用节点 1。"))
 		return 0
 	}
-	defer tty.Close()
+	if shouldClose {
+		defer tty.Close()
+	}
 	reader := bufio.NewReader(tty)
 
 	line, _ := reader.ReadString('\n')
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return 0
-	}
-	n, err := strconv.Atoi(line)
-	if err != nil || n < 1 || n > count {
+	choice, ok := parseChoice(line, count)
+	if !ok {
+		line = strings.TrimSpace(line)
 		bus.Warn(fmt.Sprintf(i18n.Text("Invalid selection '%s', fallback to 1.", "选择无效 '%s'，回退到 1。"), line))
 		return 0
 	}
-	return n - 1
+	return choice
+}
+
+func openPromptInput() (*os.File, bool, error) {
+	for _, p := range []string{"/dev/tty", "CONIN$"} {
+		f, err := os.Open(p)
+		if err == nil {
+			return f, true, nil
+		}
+	}
+
+	fi, err := os.Stdin.Stat()
+	if err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+		return os.Stdin, false, nil
+	}
+	return nil, false, fmt.Errorf("interactive input not available")
+}
+
+func parseChoice(line string, count int) (int, bool) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return 0, true
+	}
+	n, err := strconv.Atoi(line)
+	if err != nil || n < 1 || n > count {
+		return 0, false
+	}
+	return n - 1, true
 }
