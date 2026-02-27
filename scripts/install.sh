@@ -43,6 +43,26 @@ has_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+apply_backspaces() {
+  local input="$1"
+  local output=""
+  local i ch
+
+  for ((i = 0; i < ${#input}; i++)); do
+    ch="${input:i:1}"
+    case "$ch" in
+      $'\b'|$'\177')
+        output="${output%?}"
+        ;;
+      *)
+        output+="$ch"
+        ;;
+    esac
+  done
+
+  printf '%s' "$output"
+}
+
 read_input() {
   local __var_name="$1"
   local prompt_en="$2"
@@ -51,10 +71,13 @@ read_input() {
 
   printf '%b%s / %s%b ' "$C_CYAN" "$prompt_en" "$prompt_zh" "$C_RESET" >&2
   if [[ -r /dev/tty ]]; then
-    IFS= read -r answer < /dev/tty || return 1
+    if ! IFS= read -r -e answer < /dev/tty; then
+      return 1
+    fi
   else
     IFS= read -r answer || return 1
   fi
+  answer="$(apply_backspaces "$answer")"
   printf -v "$__var_name" '%s' "$answer"
   return 0
 }
