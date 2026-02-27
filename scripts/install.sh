@@ -71,86 +71,40 @@ apply_backspaces() {
   printf '%s' "$output"
 }
 
-read_tty_line() {
-  local __var_name="$1"
-  local line="" ch next old_stty read_ret
-
-  if ! has_cmd stty; then
-    IFS= read -r line < /dev/tty || return 1
-    printf -v "$__var_name" '%s' "$line"
-    return 0
-  fi
-
-  old_stty="$(stty -g < /dev/tty 2>/dev/null || true)"
-  if [[ -z "$old_stty" ]]; then
-    IFS= read -r line < /dev/tty || return 1
-    printf -v "$__var_name" '%s' "$line"
-    return 0
-  fi
-
-  stty -echo -icanon min 1 time 0 < /dev/tty 2>/dev/null || true
-  read_ret=0
-  while true; do
-    if ! IFS= read -r -n 1 ch < /dev/tty; then
-      read_ret=$?
-      break
-    fi
-
-    case "$ch" in
-      $'\n'|$'\r')
-        printf '\n' >&2
-        break
-        ;;
-      $'\177'|$'\b')
-        if [[ -n "$line" ]]; then
-          line="${line%?}"
-          printf '\b \b' >&2
-        fi
-        ;;
-      '^')
-        if IFS= read -r -n 1 -t 0.01 next < /dev/tty; then
-          if [[ "$next" == "H" || "$next" == "?" ]]; then
-            if [[ -n "$line" ]]; then
-              line="${line%?}"
-              printf '\b \b' >&2
-            fi
-          else
-            line+="$ch$next"
-            printf '%s%s' "$ch" "$next" >&2
-          fi
-        else
-          line+="$ch"
-          printf '%s' "$ch" >&2
-        fi
-        ;;
-      $'\003')
-        read_ret=130
-        printf '\n' >&2
-        break
-        ;;
-      *)
-        line+="$ch"
-        printf '%s' "$ch" >&2
-        ;;
-    esac
-  done
-
-  stty "$old_stty" < /dev/tty 2>/dev/null || true
-  [[ "$read_ret" -eq 0 ]] || return "$read_ret"
-
-  printf -v "$__var_name" '%s' "$line"
-  return 0
-}
-
 read_input() {
   local __var_name="$1"
   local prompt_en="$2"
   local prompt_zh="$3"
-  local answer
+  local answer old_stty kbs read_ret
 
   printf '%b%s / %s%b ' "$C_CYAN" "$prompt_en" "$prompt_zh" "$C_RESET" >&2
   if [[ -r /dev/tty ]]; then
-    read_tty_line answer || return 1
+    if has_cmd stty; then
+      old_stty="$(stty -g < /dev/tty 2>/dev/null || true)"
+      stty -echoctl < /dev/tty 2>/dev/null || true
+      if has_cmd tput; then
+        kbs="$(tput kbs 2>/dev/null || true)"
+      fi
+      case "$kbs" in
+        $'\b'|^H) stty erase '^H' < /dev/tty 2>/dev/null || true ;;
+        $'\177'|^?) stty erase '^?' < /dev/tty 2>/dev/null || true ;;
+      esac
+    fi
+
+    bind '"\C-h": backward-delete-char' >/dev/null 2>&1 || true
+    bind '"\C-?": backward-delete-char' >/dev/null 2>&1 || true
+    bind '"\e[3~": delete-char' >/dev/null 2>&1 || true
+
+    if ! IFS= read -r -e answer < /dev/tty; then
+      read_ret=$?
+      if [[ -n "${old_stty:-}" ]]; then
+        stty "$old_stty" < /dev/tty 2>/dev/null || true
+      fi
+      return "$read_ret"
+    fi
+    if [[ -n "${old_stty:-}" ]]; then
+      stty "$old_stty" < /dev/tty 2>/dev/null || true
+    fi
   else
     IFS= read -r answer || return 1
   fi
